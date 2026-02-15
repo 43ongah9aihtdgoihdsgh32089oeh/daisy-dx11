@@ -1,7 +1,11 @@
-# daisy-dx11
+# daisy-dx11/daisy-directx11 port
 special thanks to https://github.com/sse2/daisy
 for the original DirectX9 daisy renderer
 ported/rewritten to use DirectX11
+
+my version also includes some extra padding for text
+if you wish to get rid of it go into ``void push_text( c_fontwrapper& font, const point_t& position, const t text, const color_t& color, uint16_t alignment = TEXT_ALIGN_DEFAULT ) noexcept``
+and remove ``+ 2`` here ``corrected_position.x += w - ( 2.f * font.spacing( ) ) + 2;``
 
 # example usage
 ```
