@@ -28,7 +28,6 @@ namespace stl = std;
 
 namespace daisy
 {
-	// Color struct - unchanged
 	struct color_t
 	{
 		union
@@ -40,6 +39,26 @@ namespace daisy
 
 			uint32_t bgra;
 		};
+
+		uint8_t& r( )
+		{
+			return chan.r;
+		}
+
+		uint8_t& g( )
+		{
+			return chan.g;
+		}
+
+		uint8_t& b( )
+		{
+			return chan.b;
+		}
+
+		uint8_t& a( )
+		{
+			return chan.a;
+		}
 
 		constexpr color_t( uint8_t _r = 255, uint8_t _g = 255, uint8_t _b = 255, uint8_t _a = 255 ) noexcept
 			: chan( { _b, _g, _r, _a } )
@@ -74,6 +93,46 @@ namespace daisy
 			ret.chan.a = 255;
 
 			return ret;
+		}
+
+		static void rgb_to_hsv( const color_t& c, float* hsv )
+		{
+			float r = c.chan.r / 255.f;
+			float g = c.chan.g / 255.f;
+			float b = c.chan.b / 255.f;
+
+			float cmax = max( r, max( g, b ) );
+			float cmin = min( r, min( g, b ) );
+			float diff = cmax - cmin;
+
+			float h = 0.f, s = 0.f, v = cmax;
+
+			if ( diff > 0.f )
+			{
+				if ( cmax == r )
+					h = fmod( 60 * ( ( g - b ) / diff ) + 360, 360 );
+				else if ( cmax == g )
+					h = fmod( 60 * ( ( b - r ) / diff ) + 120, 360 );
+				else if ( cmax == b )
+					h = fmod( 60 * ( ( r - g ) / diff ) + 240, 360 );
+
+				if ( cmax > 0.f )
+					s = diff / cmax;
+			}
+
+			hsv[ 0 ] = h;
+			hsv[ 1 ] = s;
+			hsv[ 2 ] = v;
+		}
+
+		color_t lerp( const color_t& other, float t ) const
+		{
+			return color_t(
+				this->chan.r + ( other.chan.r - this->chan.r ) * t,
+				this->chan.g + ( other.chan.g - this->chan.g ) * t,
+				this->chan.b + ( other.chan.b - this->chan.b ) * t,
+				this->chan.a + ( other.chan.a - this->chan.a ) * t
+			);
 		}
 	};
 
@@ -361,7 +420,7 @@ float4 main(PS_INPUT input) : SV_TARGET
 			tex_desc.Height = this->m_height;
 			tex_desc.MipLevels = 1;
 			tex_desc.ArraySize = 1;
-			tex_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM; // Use full 8-bit per channel for better quality
+			tex_desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM; // Use full 8-bit per channel for better quality
 			tex_desc.SampleDesc.Count = 1;
 			tex_desc.Usage = D3D11_USAGE_DYNAMIC;
 			tex_desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
@@ -399,6 +458,7 @@ float4 main(PS_INPUT input) : SV_TARGET
 
 			SetTextColor( gdi_ctx, RGB( 255, 255, 255 ) );
 			SetBkColor( gdi_ctx, 0x00000000 );
+			SetBkMode( gdi_ctx, OPAQUE );
 			SetTextAlign( gdi_ctx, TA_TOP );
 
 			if ( this->paint_or_measure_alphabet( gdi_ctx, false ) )
@@ -413,7 +473,7 @@ float4 main(PS_INPUT input) : SV_TARGET
 			uint8_t* dst_row = static_cast< uint8_t* >( mapped.pData );
 
 			// Write RGBA data
-			// GDI renders white text on black background
+			// GDI renders white text_w on black background
 			// We store white RGB (255,255,255) with luminance as alpha
 			for ( uint32_t y = 0; y < this->m_height; y++ )
 			{
@@ -428,14 +488,14 @@ float4 main(PS_INPUT input) : SV_TARGET
 					BYTE g = ( pixel >> 8 ) & 0xFF;
 					BYTE r = ( pixel >> 16 ) & 0xFF;
 
-					// Calculate luminance - max of RGB channels for white text
+					// Calculate luminance - max of RGB channels for white text_w
 					BYTE intensity = max( max( r, g ), b );
 
 					// Write R8G8B8A8: R, G, B, A in memory order
 					dst[ 0 ] = 255;      // R - full white
 					dst[ 1 ] = 255;      // G - full white  
 					dst[ 2 ] = 255;      // B - full white
-					dst[ 3 ] = intensity; // A - text opacity (0=transparent, 255=solid)
+					dst[ 3 ] = intensity; // A - text_w opacity (0=transparent, 255=solid)
 
 					dst += 4;
 				}
@@ -550,7 +610,7 @@ float4 main(PS_INPUT input) : SV_TARGET
 		point_t text_extent( t text ) noexcept
 		{
 			float row_width = 0.f;
-			float row_height = ( this->m_coords[ static_cast< wchar_t >( 32 ) ][ 3 ] - this->m_coords[ static_cast< wchar_t >( 32 ) ][ 1 ] ) * this->m_height;
+			float row_height = ( this->m_coords[ static_cast< wchar_t > ( 32 ) ][ 3 ] - this->m_coords[ static_cast< wchar_t > ( 32 ) ][ 1 ] ) * this->m_height;
 			float width = 0.f;
 			float height = row_height;
 
@@ -568,7 +628,7 @@ float4 main(PS_INPUT input) : SV_TARGET
 				float tx1 = this->m_coords[ static_cast< wchar_t >( c ) ][ 0 ];
 				float tx2 = this->m_coords[ static_cast< wchar_t >( c ) ][ 2 ];
 
-				row_width += ( tx2 - tx1 ) * this->m_width - 2.f * this->m_spacing;
+				row_width += ( tx2 - tx1 ) * this->m_width - 2.f * this->m_spacing + 1.f;
 
 				if ( row_width > width )
 					width = row_width;
@@ -690,7 +750,7 @@ float4 main(PS_INPUT input) : SV_TARGET
 			tex_desc.Height = static_cast< UINT >( dimensions.y );
 			tex_desc.MipLevels = 1;
 			tex_desc.ArraySize = 1;
-			tex_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+			tex_desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
 			tex_desc.SampleDesc.Count = 1;
 			tex_desc.Usage = D3D11_USAGE_DYNAMIC;
 			tex_desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
@@ -1332,20 +1392,12 @@ float4 main(PS_INPUT input) : SV_TARGET
 			daisy_vtx_t* vtx = reinterpret_cast< daisy_vtx_t* >( reinterpret_cast< uintptr_t >( this->m_vtxs.m_data.get( ) ) + ( sizeof( daisy_vtx_t ) * this->m_vtxs.m_size ) );
 			uint16_t* idx = reinterpret_cast< uint16_t* >( reinterpret_cast< uintptr_t >( this->m_idxs.m_data.get( ) ) + ( sizeof( uint16_t ) * this->m_idxs.m_size ) );
 
-			bool was_new_line = false;
 			for ( const auto& c : text )
 			{
 				if ( c == '\n' || c == L'\n' )
 				{
 					corrected_position.x = start_x;
 					corrected_position.y += ( space_coords[ 3 ] - space_coords[ 1 ] ) * font.height( );
-					was_new_line = true;
-					continue;
-				}
-
-				if ( was_new_line && c == ' ' )
-				{
-					was_new_line = false;
 					continue;
 				}
 
@@ -1363,10 +1415,10 @@ float4 main(PS_INPUT input) : SV_TARGET
 				if ( !is_space )
 				{
 					daisy_vtx_t v[ ] = {
-						{ { corrected_position.x - 0.5f, corrected_position.y - 0.5f + h, 0.f, 1.f }, color.bgra, { tx1, ty2 } },
-						{ { corrected_position.x - 0.5f, corrected_position.y - 0.5f, 0.f, 1.f }, color.bgra, { tx1, ty1 } },
-						{ { corrected_position.x - 0.5f + w, corrected_position.y - 0.5f + h, 0.f, 1.f }, color.bgra, { tx2, ty2 } },
-						{ { corrected_position.x - 0.5f + w, corrected_position.y - 0.5f, 0.f, 1.f }, color.bgra, { tx2, ty1 } } };
+						{ { corrected_position.x, corrected_position.y + h, 0.f, 1.f }, color.bgra, { tx1, ty2 } },
+						{ { corrected_position.x, corrected_position.y, 0.f, 1.f }, color.bgra, { tx1, ty1 } },
+						{ { corrected_position.x + w, corrected_position.y + h, 0.f, 1.f }, color.bgra, { tx2, ty2 } },
+						{ { corrected_position.x + w, corrected_position.y, 0.f, 1.f }, color.bgra, { tx2, ty1 } } };
 
 					vtx[ vtx_counter++ ] = v[ 0 ];
 					vtx[ vtx_counter++ ] = v[ 1 ];
@@ -1388,7 +1440,7 @@ float4 main(PS_INPUT input) : SV_TARGET
 					cont_primitives += 2;
 				}
 
-				corrected_position.x += w - ( 2.f * font.spacing( ) ) + 2;
+				corrected_position.x += w - ( 2.f * font.spacing( ) ) + 1;
 			}
 
 			this->end_batch( additional_indices, cont_vertices, cont_indices, cont_primitives, font.texture_srv( ) );
@@ -1454,7 +1506,7 @@ float4 main(PS_INPUT input) : SV_TARGET
 			tex_desc.Height = 1;
 			tex_desc.MipLevels = 1;
 			tex_desc.ArraySize = 1;
-			tex_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+			tex_desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
 			tex_desc.SampleDesc.Count = 1;
 			tex_desc.Usage = D3D11_USAGE_DEFAULT;
 			tex_desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
@@ -1511,7 +1563,7 @@ float4 main(PS_INPUT input) : SV_TARGET
 		D3D11_INPUT_ELEMENT_DESC layout[ ] =
 		{
 			{ "POSITION", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 },
-			{ "COLOR", 0, DXGI_FORMAT_R8G8B8A8_UNORM, 0, 16, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+			{ "COLOR", 0, DXGI_FORMAT_B8G8R8A8_UNORM, 0, 16, D3D11_INPUT_PER_VERTEX_DATA, 0 },
 			{ "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 20, D3D11_INPUT_PER_VERTEX_DATA, 0 },
 		};
 
@@ -1564,10 +1616,10 @@ float4 main(PS_INPUT input) : SV_TARGET
 
 		// Create sampler state
 		D3D11_SAMPLER_DESC sampler_desc = {};
-		sampler_desc.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
-		sampler_desc.AddressU = D3D11_TEXTURE_ADDRESS_WRAP;
-		sampler_desc.AddressV = D3D11_TEXTURE_ADDRESS_WRAP;
-		sampler_desc.AddressW = D3D11_TEXTURE_ADDRESS_WRAP;
+		sampler_desc.Filter = D3D11_FILTER_MIN_MAG_MIP_POINT;
+		sampler_desc.AddressU = D3D11_TEXTURE_ADDRESS_CLAMP;
+		sampler_desc.AddressV = D3D11_TEXTURE_ADDRESS_CLAMP;
+		sampler_desc.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
 		sampler_desc.ComparisonFunc = D3D11_COMPARISON_NEVER;
 		sampler_desc.MinLOD = 0;
 		sampler_desc.MaxLOD = D3D11_FLOAT32_MAX;
@@ -1596,6 +1648,13 @@ float4 main(PS_INPUT input) : SV_TARGET
 
 		daisy_t::s_context->IASetInputLayout( daisy_t::s_input_layout );
 		daisy_t::s_context->IASetPrimitiveTopology( D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST );
+
+		D3D11_RECT default_rect {};
+		default_rect.left = 0;
+		default_rect.top = 0;
+		default_rect.right = static_cast< LONG >( daisy_t::s_viewport_width );
+		default_rect.bottom = static_cast< LONG >( daisy_t::s_viewport_height );
+		daisy_t::s_context->RSSetScissorRects( 1, &default_rect );
 	}
 
 	inline static void daisy_shutdown( ) noexcept
